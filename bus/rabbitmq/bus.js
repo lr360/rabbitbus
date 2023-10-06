@@ -102,8 +102,6 @@ function RabbitMQBus (options, implOpts) {
   Bus.call(this);
 }
 
-console.log({Bus})
-
 util.inherits(RabbitMQBus, Bus);
 
 RabbitMQBus.prototype.listen = function listen (queueName, options, callback) {
