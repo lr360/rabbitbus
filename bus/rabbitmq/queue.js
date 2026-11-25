@@ -1,6 +1,8 @@
 var EventEmitter = require('events').EventEmitter;
 var extend = require('extend');
 var util = require('util');
+var consumerCancelled = require('./consumerCancelled');
+var logSetupFailure = require('./logSetupFailure');
 
 function Queue (options) {
   options = options || {};
@@ -49,7 +51,7 @@ function Queue (options) {
         var errorQueueOptions = extend(self.queueOptions, {
           autoDelete: options.autoDeleteErrorQueue || false
         });
-        self.listenChannel.assertQueue(self.errorQueueName, self.queueOptions)
+        return self.listenChannel.assertQueue(self.errorQueueName, self.queueOptions)
         .then(function (_qok) {
           self.initialized = true;
           self.emit('ready');
@@ -60,7 +62,11 @@ function Queue (options) {
       }
     }).catch(function (err) {
       self.log('error connecting to queue %s. error: %s', options.queueName, err.toString());
-      self.emit('error', err);
+      // [AI] An 'error' event without a listener throws, which would turn this handled rejection into an unhandled one
+      // and crash the process: the channel 'error' event already reports the failure to the bus.
+      if (self.listenerCount('error') > 0) {
+        self.emit('error', err);
+      }
     });
   }
 
@@ -88,6 +94,7 @@ Queue.prototype.listen = function listen (callback, options) {
         If the consumer is cancelled by RabbitMQ, the message callback will be invoked with null.
       */
     if (message === null) {
+      consumerCancelled(self.bus, self.queueName);
       return;
     }
     message.content = options.formatter.deserialize(message.content.toString());
@@ -112,7 +119,7 @@ Queue.prototype.listen = function listen (callback, options) {
       self.listening = true;
       self.subscription = { consumerTag: ok.consumerTag };
       self.emit('listening');
-    });
+    }, logSetupFailure(self.log, 'consuming queue ' + self.queueName));
 
 };
 

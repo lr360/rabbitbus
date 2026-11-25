@@ -9,7 +9,8 @@ var amqp = require('amqplib'),
     PubSubQueue = require('./pubsubqueue'),
     querystring = require('querystring'),
     Queue = require('./queue'),
-    getRabbitMQUrl = require('../lib/getRabbitMQUrl');
+    getRabbitMQUrl = require('../lib/getRabbitMQUrl'),
+    logSetupFailure = require('./logSetupFailure');
 
 function RabbitMQBus (options, implOpts) {
   var self = this;
@@ -64,22 +65,22 @@ function RabbitMQBus (options, implOpts) {
       channel.on('close', self.emit.bind(self, 'channel.close'));
       self.sendChannel = channel;
       if (options.prefetch) {
-        self.sendChannel.prefetch(options.prefetch);
+        self.sendChannel.prefetch(options.prefetch).catch(logSetupFailure(self.log, 'setting the prefetch'));
       }
       self.channels.push(channel);
       done();
-    });
+    }, logSetupFailure(self.log, 'creating a channel'));
 
     self.connection.createChannel().then(function (channel) {
       channel.on('error', channelError);
       channel.on('close', self.emit.bind(self, 'channel.close'));
       self.listenChannel = channel;
       if (options.prefetch) {
-        self.listenChannel.prefetch(options.prefetch);
+        self.listenChannel.prefetch(options.prefetch).catch(logSetupFailure(self.log, 'setting the prefetch'));
       }
       self.channels.push(channel);
       done();
-    });
+    }, logSetupFailure(self.log, 'creating a channel'));
 
     if (options.enableConfirms) {
       self.connection.createConfirmChannel().then(function (channel) {
@@ -87,11 +88,11 @@ function RabbitMQBus (options, implOpts) {
         channel.on('close', self.emit.bind(self, 'channel.close'));
         self.confirmChannel = channel;
         if (options.prefetch) {
-          self.confirmChannel.prefetch(options.prefetch);
+          self.confirmChannel.prefetch(options.prefetch).catch(logSetupFailure(self.log, 'setting the prefetch'));
         }
         self.channels.push(channel);
         done();
-      });
+      }, logSetupFailure(self.log, 'creating a confirm channel'));
     }
 
   }).catch(function (err) {

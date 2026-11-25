@@ -1,6 +1,8 @@
 var events = require('events');
 var extend = require('extend');
 var util = require('util');
+var consumerCancelled = require('./consumerCancelled');
+var logSetupFailure = require('./logSetupFailure');
 
 function PubSubQueue (options) {
   options = options || {};
@@ -41,10 +43,12 @@ function PubSubQueue (options) {
   this.sendChannel = options.sendChannel;
 
   this.log('asserting exchange %s', this.exchangeName);
-  this.sendChannel.assertExchange(this.exchangeName, this.exchangeOptions.type || 'topic', this.exchangeOptions);
+  this.sendChannel.assertExchange(this.exchangeName, this.exchangeOptions.type || 'topic', this.exchangeOptions)
+    .catch(logSetupFailure(this.log, 'asserting exchange ' + this.exchangeName));
 
   if (this.confirmChannel) {
-    this.confirmChannel.assertExchange(this.exchangeName, this.exchangeOptions.type || 'topic', this.exchangeOptions);
+    this.confirmChannel.assertExchange(this.exchangeName, this.exchangeOptions.type || 'topic', this.exchangeOptions)
+      .catch(logSetupFailure(this.log, 'asserting exchange ' + this.exchangeName));
   }
 
   events.EventEmitter.call(this);
@@ -107,6 +111,7 @@ PubSubQueue.prototype.subscribe = function subscribe (options, callback) {
           If the consumer is cancelled by RabbitMQ, the message callback will be invoked with null.
         */
       if (message === null) {
+        consumerCancelled(self.bus, uniqueName);
         return;
       }
       // todo: map contentType to default formatters
@@ -133,7 +138,7 @@ PubSubQueue.prototype.subscribe = function subscribe (options, callback) {
         subscription = { consumerTag: ok.consumerTag };
         self.emit('subscribed');
         receipt.emit('subscribed');
-      });
+      }, logSetupFailure(self.log, 'consuming queue ' + uniqueName));
   }
 
   self.correlator.queueName(options, function (err, uniqueName) {
@@ -147,14 +152,15 @@ PubSubQueue.prototype.subscribe = function subscribe (options, callback) {
           var errorQueueOptions = extend(self.queueOptions, {
             autoDelete: options.autoDeleteErrorQueue || false
           });
-          self.listenChannel.assertQueue(self.errorQueueName, errorQueueOptions)
+          return self.listenChannel.assertQueue(self.errorQueueName, errorQueueOptions)
           .then(function (_qok) {
             _subscribe(uniqueName);
           });
         } else {
           _subscribe(uniqueName);
         }
-      });
+      })
+      .catch(logSetupFailure(self.log, 'subscribing to queue ' + uniqueName));
   });
 
   return receipt;
